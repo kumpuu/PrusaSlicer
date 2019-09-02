@@ -51,6 +51,7 @@ public:
     bool empty() const { return size() == 0; }
 
     void foreach(std::function<void(const PointIndexEl& el)> fn);
+    void foreach(std::function<void(const PointIndexEl& el)> fn) const;
 };
 
 using BoxIndexEl = std::pair<Slic3r::BoundingBox, unsigned>;

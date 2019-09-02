@@ -104,6 +104,11 @@ void PointIndex::foreach(std::function<void (const PointIndexEl &)> fn)
     for(auto& el : m_impl->m_store) fn(el);
 }
 
+void PointIndex::foreach(std::function<void (const PointIndexEl &)> fn) const
+{
+    for(const auto &el : m_impl->m_store) fn(el);
+}
+
 /* **************************************************************************
  * BoxIndex implementation
  * ************************************************************************** */
