@@ -77,7 +77,7 @@ bool PointIndex::remove(const PointIndexEl& el)
 }
 
 std::vector<PointIndexEl>
-PointIndex::query(std::function<bool(const PointIndexEl &)> fn)
+PointIndex::query(std::function<bool(const PointIndexEl &)> fn) const
 {
     namespace bgi = boost::geometry::index;
 
@@ -86,7 +86,7 @@ PointIndex::query(std::function<bool(const PointIndexEl &)> fn)
     return ret;
 }
 
-std::vector<PointIndexEl> PointIndex::nearest(const Vec3d &el, unsigned k = 1)
+std::vector<PointIndexEl> PointIndex::nearest(const Vec3d &el, unsigned k = 1) const
 {
     namespace bgi = boost::geometry::index;
     std::vector<PointIndexEl> ret; ret.reserve(k);

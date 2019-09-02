@@ -39,8 +39,12 @@ public:
         insert(std::make_pair(v, unsigned(idx)));
     }
 
-    std::vector<PointIndexEl> query(std::function<bool(const PointIndexEl&)>);
-    std::vector<PointIndexEl> nearest(const Vec3d&, unsigned k);
+    std::vector<PointIndexEl> query(std::function<bool(const PointIndexEl&)>) const;
+    std::vector<PointIndexEl> nearest(const Vec3d&, unsigned k) const;
+    std::vector<PointIndexEl> query(const Vec3d &v, unsigned k) const // wrapper
+    {
+        return nearest(v, k);
+    }
 
     // For testing
     size_t size() const;

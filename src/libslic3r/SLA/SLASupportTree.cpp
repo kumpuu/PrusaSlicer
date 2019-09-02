@@ -17,6 +17,8 @@
 #include <libnest2d/optimizers/nlopt/subplex.hpp>
 #include <boost/log/trivial.hpp>
 #include <tbb/parallel_for.h>
+#include <tbb/mutex.h>
+#include <tbb/spin_mutex.h>
 #include <libslic3r/I18N.hpp>
 
 //! macro used to mark string used at localization,
@@ -91,7 +93,8 @@ template<bool> struct _ccr {};
 
 template<> struct _ccr<true>
 {
-    using Mutex = SpinMutex;
+    using SpinningMutex = tbb::spin_mutex; // SpinMutex;
+    using LockingMutex  = tbb::mutex;
 
     template<class It, class Fn>
     static inline void enumerate(It from, It to, Fn fn)
@@ -106,7 +109,12 @@ template<> struct _ccr<true>
 
 template<> struct _ccr<false>
 {
-    struct Mutex { inline void lock() {} inline void unlock() {} };
+private:
+    struct _Mtx { inline void lock() {} inline void unlock() {} };
+    
+public:
+    using SpinMutex = _Mtx;
+    using LockingMutex = _Mtx;
 
     template<class It, class Fn>
     static inline void enumerate(It from, It to, Fn fn)
@@ -783,8 +791,7 @@ class SLASupportTree::Impl {
     Controller m_ctl;
 
     Pad m_pad;
-
-    using Mutex = ccr::Mutex;
+    using Mutex = ccr::SpinningMutex;
 
     mutable Mutex m_mutex;
     mutable TriangleMesh meshcache; mutable bool meshcache_valid = false;
@@ -1117,6 +1124,20 @@ class SLASupportTree::Algorithm {
 
     // A spatial index to easily find strong pillars to connect to.
     PointIndex m_pillar_index;
+    mutable ccr::LockingMutex m_pillar_index_mutex;
+    
+    template<class...Args> inline void add_to_pillar_index(Args&&...args)
+    {
+        std::lock_guard<ccr::LockingMutex> lck(m_pillar_index_mutex);
+        m_pillar_index.insert(std::forward<Args>(args)...);
+    }
+    
+    template<class...Args>
+    inline std::vector<PointIndexEl> query_pillar_index(Args&&...args) const
+    {
+        std::lock_guard<ccr::LockingMutex> lck(m_pillar_index_mutex);
+        return m_pillar_index.query(std::forward<Args>(args)...);
+    }
 
     inline double ray_mesh_intersect(const Vec3d& s,
                                      const Vec3d& dir)
@@ -1507,7 +1528,10 @@ class SLASupportTree::Algorithm {
     }
 
     bool search_pillar_and_connect(const Head& head) {
+        
+        m_pillar_index_mutex.lock();
         PointIndex spindex = m_pillar_index;
+        m_pillar_index_mutex.unlock();
 
         long nearest_id = -1;
 
@@ -1651,7 +1675,7 @@ class SLASupportTree::Algorithm {
         }
 
         if(pillar_id >= 0) // Save the pillar endpoint in the spatial index
-            m_pillar_index.insert(endp, pillar_id);
+            add_to_pillar_index(endp, unsigned(pillar_id));
     }
 
 public:
@@ -1717,9 +1741,9 @@ public:
         using libnest2d::opt::GeneticOptimizer;
         using libnest2d::opt::StopCriteria;
 
-        ccr::Mutex mutex;
+        ccr::SpinningMutex mutex;
         auto addfn = [&mutex](PtIndices &container, unsigned val) {
-            std::lock_guard<ccr::Mutex> lk(mutex);
+            std::lock_guard<ccr::SpinningMutex> lk(mutex);
             container.emplace_back(val);
         };
 
@@ -2015,7 +2039,7 @@ public:
         };
 
         std::vector<unsigned> modelpillars;
-        ccr::Mutex mutex;
+        ccr::SpinningMutex mutex;
 
         // TODO: connect these to the ground pillars if possible
         ccr::enumerate(m_iheads_onmodel.begin(), m_iheads_onmodel.end(),
@@ -2161,7 +2185,7 @@ public:
                 pill.base = tailhead.mesh;
 
                 // Experimental: add the pillar to the index for cascading
-                std::lock_guard<ccr::Mutex> lk(mutex);
+                std::lock_guard<ccr::SpinningMutex> lk(mutex);
                 modelpillars.emplace_back(unsigned(pill.id));
                 return;
             }
@@ -2175,7 +2199,7 @@ public:
 
         for(auto pillid : modelpillars) {
             auto& pillar = m_result.pillar(pillid);
-            m_pillar_index.insert(pillar.endpoint(), pillid);
+            add_to_pillar_index(pillar.endpoint(), pillid);
         }
     }
 
@@ -2237,7 +2261,7 @@ public:
             if(pillar.links >= neighbors) return;
 
             // Query all remaining points within reach
-            auto qres = m_pillar_index.query([qp, d](const PointIndexEl& e){
+            auto qres = query_pillar_index([qp, d](const PointIndexEl& e){
                 return distance(e.first, qp) < d;
             });
 
@@ -2371,7 +2395,7 @@ public:
 
                 if(interconnect(pillar(), p)) {
                     Pillar& pp = m_result.add_pillar(p);
-                    m_pillar_index.insert(pp.endpoint(), unsigned(pp.id));
+                    add_to_pillar_index(pp.endpoint(), unsigned(pp.id));
 
                     m_result.add_junction(s, pillar().r);
                     double t = bridge_mesh_intersect(pillarsp,
