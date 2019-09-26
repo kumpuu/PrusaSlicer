@@ -73,12 +73,8 @@ public:
         inline PixelDim(double px_width_mm = 0.0, double px_height_mm = 0.0):
             w_mm(px_width_mm), h_mm(px_height_mm) {}
     };
-
-    /// Constructor taking the resolution and the pixel dimension.
-    template <class...Args> Raster(Args...args) { 
-        reset(std::forward<Args>(args)...); 
-    }
     
+    Raster();
     Raster(const Raster& cpy) = delete;
     Raster& operator=(const Raster& cpy) = delete;
     Raster(Raster&& m);
@@ -106,6 +102,7 @@ public:
 
     /// Get the resolution of the raster.
     Resolution resolution() const;
+    PixelDim   pixel_dimensions() const;
 
     /// Clear the raster with black color.
     void clear();
@@ -125,10 +122,11 @@ public:
     /// Save into a continuous byte stream which is returned.
     RawBytes save(Format fmt);
     RawBytes save();
+    
+    uint8_t read_pixel(size_t w, size_t h) const;
+    
+    inline bool empty() const { return ! bool(m_impl); }
 };
-
-// This prevents the duplicate default constructor warning on MSVC2013
-template<> Raster::Raster();
 
 
 } // sla

@@ -5,6 +5,7 @@
 
 #include "SLARaster.hpp"
 #include "libslic3r/ExPolygon.hpp"
+#include "libslic3r/MTUtils.hpp"
 #include <libnest2d/backends/clipper/clipper_polygon.hpp>
 
 // For rasterizing
@@ -139,7 +140,12 @@ public:
     inline Format format() const { return m_fmt; }
 
     inline const Raster::Resolution resolution() { return m_resolution; }
-   
+    inline const Raster::PixelDim   pixdim()
+    {
+        return {SCALING_FACTOR / m_pxdim_scaled.w_mm,
+                SCALING_FACTOR / m_pxdim_scaled.h_mm};
+    }
+
 private:
     inline double getPx(const Point& p) {
         return p(0) * m_pxdim_scaled.w_mm;
@@ -181,7 +187,7 @@ private:
 const Raster::Impl::TPixel Raster::Impl::ColorWhite = Raster::Impl::TPixel(255);
 const Raster::Impl::TPixel Raster::Impl::ColorBlack = Raster::Impl::TPixel(0);
 
-template<> Raster::Raster() { reset(); };
+Raster::Raster() { reset(); };
 Raster::~Raster() = default;
 
 Raster::Raster(Raster &&m) = default;
@@ -208,9 +214,16 @@ void Raster::reset()
 
 Raster::Resolution Raster::resolution() const
 {
-    if(m_impl) return m_impl->resolution();
+    if (m_impl) return m_impl->resolution();
+    
+    return Resolution{0, 0};
+}
 
-    return Resolution(0, 0);
+Raster::PixelDim Raster::pixel_dimensions() const
+{
+    if (m_impl) return m_impl->pixdim();
+    
+    return PixelDim{0., 0.};
 }
 
 void Raster::clear()
@@ -221,11 +234,13 @@ void Raster::clear()
 
 void Raster::draw(const ExPolygon &expoly)
 {
+    assert(m_impl);
     m_impl->draw(expoly);
 }
 
 void Raster::draw(const ClipperLib::Polygon &poly)
 {
+    assert(m_impl);
     m_impl->draw(poly);
 }
 
@@ -315,6 +330,14 @@ RawBytes Raster::save(Format fmt)
 RawBytes Raster::save()
 {
     return save(m_impl->format());
+}
+
+uint8_t Raster::read_pixel(size_t x, size_t y) const
+{
+    assert (m_impl);
+    Raster::Impl::TPixel::value_type px;
+    m_impl->buffer()[y * resolution().width_px + x].get(px);
+    return px;
 }
 
 }

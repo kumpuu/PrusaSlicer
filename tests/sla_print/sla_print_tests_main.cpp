@@ -1,5 +1,8 @@
 #include <map>
 
+// Debug
+#include <fstream>
+
 #include <gtest/gtest.h>
 
 #include "libslic3r/libslic3r.h"
@@ -10,6 +13,7 @@
 #include "libslic3r/SLA/SLASupportTreeBuilder.hpp"
 #include "libslic3r/SLA/SLASupportTreeAlgorithm.hpp"
 #include "libslic3r/SLA/SLAAutoSupports.hpp"
+#include "libslic3r/SLA/SLARaster.hpp"
 #include "libslic3r/MTUtils.hpp"
 
 #include "libslic3r/SVG.hpp"
@@ -86,7 +90,7 @@ void test_pad(const std::string &   obj_filename,
     
     ASSERT_FALSE(out.model_contours.empty());
     
-    // Create the pad geometry the model contours only
+    // Create the pad geometry for the model contours only
     Slic3r::sla::create_pad({}, out.model_contours, out.mesh, padcfg);
     
     check_validity(out.mesh);
@@ -367,6 +371,102 @@ TEST(SLASupportGeneration, SupportsDoNotPierceModel) {
 
     for (auto fname : SUPPORT_TEST_MODELS)
         test_support_model_collision(fname, supportcfg);
+}
+
+TEST(SLARasterOutput, DefaultRasterShouldBeEmpty) {
+    sla::Raster raster;
+    ASSERT_TRUE(raster.empty());
+}
+
+TEST(SLARasterOutput, InitializedRasterShouldBeNONEmpty) {
+    // Default Prusa SL1 display parameters
+    sla::Raster::Resolution res{2560, 1440};
+    sla::Raster::PixelDim   pixdim{120. / res.width_px, 68. / res.height_px};
+    
+    sla::Raster raster;
+    raster.reset(res, pixdim, sla::Raster::Format::PNG);
+    ASSERT_FALSE(raster.empty());
+    ASSERT_EQ(raster.resolution().width_px, res.width_px);
+    ASSERT_EQ(raster.resolution().height_px, res.height_px);
+    ASSERT_DOUBLE_EQ(raster.pixel_dimensions().w_mm, pixdim.w_mm);
+    ASSERT_DOUBLE_EQ(raster.pixel_dimensions().h_mm, pixdim.h_mm);
+}
+
+using TPixel = uint8_t;
+static constexpr const TPixel FullWhite = 255;
+static constexpr const TPixel FullBlack = 0;
+
+template <class A, int N> constexpr int arraysize(const A (&)[N]) { return N; }
+
+// This function draws a small box in the center and each corner of the
+// drawing space and reads back the raster output at the corners and the
+// center. Only one location should be white colored (accoring to 'mirroring'),
+// all the other corners have to be black.
+static void check_raster_mirroring(sla::Raster &              raster,
+                                   const BoundingBox &        bb,
+                                   const std::array<bool, 2> &mirroring)
+{
+    sla::Raster::Resolution res = raster.resolution();
+    double disp_w = unscaled(bb.max.x() - bb.min.x());
+    double disp_h = unscaled(bb.max.y() - bb.min.y());
+    sla::Raster::PixelDim pixdim{disp_w / (res.width_px - 1),
+                                 disp_h / (res.height_px - 1)};
+    
+    // create box of size 4x4 pixels (not 1x1 to avoid antialiasing errors)
+    coord_t pw = 2 * coord_t(std::ceil(scaled<double>(pixdim.w_mm)));
+    coord_t ph = 2 * coord_t(std::ceil(scaled<double>(pixdim.h_mm)));
+    ExPolygon pix;
+    pix.contour.points = {{-pw, -ph}, {pw, -ph}, {pw, ph}, {-pw, ph}};
+    
+    Point corners[] = {bb.min, {bb.max.x(), bb.min.y()}, bb.center(),
+                       bb.max, {bb.min.x(), bb.max.y()} };
+    
+    auto get_white_index = [](size_t k, const std::array<bool, 2> &mirror) {
+        // numbers mean:
+        // 0: bottom left, 1: bottom right, 2: center, 3: top right, 4: top left
+        static const constexpr std::array< std::array<size_t, 5>, 4> mirror_tab
+        {{
+            {0, 1, 2, 3, 4}, {4, 3, 2, 1, 0}, {1, 0, 2, 4, 3}, {3, 4, 2, 0, 1}
+        }};
+        
+        size_t idx = (size_t(mirror[0]) << 1) + size_t(mirror[1]);
+        return mirror_tab[idx][k];
+    };
+    
+    size_t i = 0;
+    for (const Point &c : corners) {
+        ExPolygon ppix = pix;
+        ppix.translate(c.x(), c.y());
+        raster.reset(res, pixdim, mirroring);
+        
+        raster.draw(ppix);
+        TPixel outputs[arraysize(corners)];
+        size_t k = get_white_index(i++, mirroring);
+        
+        for (size_t j = 0; j < arraysize(corners); ++j) {
+            auto w = size_t(std::floor(unscaled(corners[j].x()) / pixdim.w_mm));
+            auto h = size_t(std::floor(unscaled(corners[j].y()) / pixdim.h_mm));
+            outputs[j] = raster.read_pixel(w, h);
+            
+            ASSERT_EQ(outputs[j], (j == k ? FullWhite : FullBlack));
+        }
+    }
+}
+
+TEST(SLARasterOutput, MirroringShouldBeCorrect) {
+    double disp_w = 120., disp_h = 68.;
+    sla::Raster::Resolution res{2560, 1440};
+    sla::Raster::PixelDim   pixdim{disp_w / res.width_px, disp_h / res.height_px};
+    auto bb = BoundingBox({0, 0}, {scaled(disp_w), scaled(disp_h)});
+    
+    sla::Raster raster;
+    std::array<bool, 2> mirroring = {false, false};
+    raster.reset(res, pixdim, mirroring);
+    
+    check_raster_mirroring(raster, bb, mirroring);
+    check_raster_mirroring(raster, bb, {false, true});
+    check_raster_mirroring(raster, bb, {true, false});
+    check_raster_mirroring(raster, bb, {true, true});
 }
 
 int main(int argc, char **argv) {
