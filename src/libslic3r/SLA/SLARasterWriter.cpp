@@ -21,31 +21,9 @@ std::string RasterWriter::createIniContent(const std::string& projectname) const
     return out;
 }
 
-void RasterWriter::flpXY(ClipperLib::Polygon &poly)
-{
-    for(auto& p : poly.Contour) std::swap(p.X, p.Y);
-    std::reverse(poly.Contour.begin(), poly.Contour.end());
-    
-    for(auto& h : poly.Holes) {
-        for(auto& p : h) std::swap(p.X, p.Y);
-        std::reverse(h.begin(), h.end());
-    }
-}
-
-void RasterWriter::flpXY(ExPolygon &poly)
-{
-    for(auto& p : poly.contour.points) p = Point(p.y(), p.x());
-    std::reverse(poly.contour.points.begin(), poly.contour.points.end());
-    
-    for(auto& h : poly.holes) {
-        for(auto& p : h.points) p = Point(p.y(), p.x());
-        std::reverse(h.points.begin(), h.points.end());
-    }
-}
-
 RasterWriter::RasterWriter(const Raster::Resolution &res,
                            const Raster::PixelDim &  pixdim,
-                           const Trafo &             trafo,
+                           const Raster::Trafo &     trafo,
                            double                    gamma)
     : m_res(res), m_pxdim(pixdim), m_trafo(trafo), m_gamma(gamma)
 {}

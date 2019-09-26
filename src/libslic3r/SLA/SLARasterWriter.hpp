@@ -15,7 +15,8 @@
 
 namespace Slic3r { namespace sla {
 
-// Implementation for PNG raster output
+// API to write the zipped sla output layers and metadata.
+// Implementation uses PNG raster output.
 // Be aware that if a large number of layers are allocated, it can very well
 // exhaust the available memory especially on 32 bit platform.
 // This class is designed to be used in parallel mode. Layers have an ID and
@@ -25,21 +26,6 @@ namespace Slic3r { namespace sla {
 class RasterWriter
 {
 public:
-    enum Orientation { roLandscape, roPortrait };
-
-    struct Trafo {
-        bool mirror_x = false, mirror_y = false, flipXY = false;
-
-        explicit Trafo(Orientation         o,
-                       std::array<bool, 2> mirror = {false, false})
-            : mirror_x(mirror[0])
-            , mirror_y(!mirror[1]) // PNG raster implicitly does an Y flip
-            , flipXY(o == roPortrait)
-        {
-            // XY flipping implicitly does an X mirror
-            if (flipXY) mirror_x = !mirror_x;
-        }
-    };
     
     // Used for addressing parameters of set_statistics()
     struct PrintStatistics
@@ -73,28 +59,19 @@ private:
     std::vector<Layer> m_layers_rst;
     Raster::Resolution m_res;
     Raster::PixelDim   m_pxdim;
-    Trafo              m_trafo;
+    Raster::Trafo      m_trafo;
     double             m_gamma;
 
     std::map<std::string, std::string> m_config;
     
     std::string createIniContent(const std::string& projectname) const;
-    
-    static void flpXY(ClipperLib::Polygon& poly);
-    static void flpXY(ExPolygon& poly);
-    
-    template<class Poly> void draw_poly_flpxy(Poly p, unsigned lyr)
-    {
-        flpXY(p);
-        m_layers_rst[lyr].raster.draw(p);
-    }
 
 public:
     
     // SLARasterWriter is using Raster in custom mirroring mode
     RasterWriter(const Raster::Resolution &res,
                  const Raster::PixelDim &  pixdim,
-                 const Trafo &             trafo,
+                 const Raster::Trafo &     trafo,
                  double                    gamma = 1.);
 
     RasterWriter(const RasterWriter& ) = delete;
@@ -108,34 +85,28 @@ public:
     template<class Poly> void draw_polygon(const Poly& p, unsigned lyr)
     {
         assert(lyr < m_layers_rst.size());
-        
-        if (m_trafo.flipXY) draw_poly_flpxy(p, lyr);
-        else m_layers_rst[lyr].raster.draw(p);
+        m_layers_rst[lyr].raster.draw(p);
     }
 
     inline void begin_layer(unsigned lyr) {
         if(m_layers_rst.size() <= lyr) m_layers_rst.resize(lyr+1);
-        std::array<bool, 2> mirror{m_trafo.mirror_x, m_trafo.mirror_y};
-        m_layers_rst[lyr].raster.reset(m_res, m_pxdim, mirror, m_gamma);
+        m_layers_rst[lyr].raster.reset(m_res, m_pxdim, Raster::Format::PNG, m_trafo);
     }
 
     inline void begin_layer() {
         m_layers_rst.emplace_back();
-        std::array<bool, 2> mirror{m_trafo.mirror_x, m_trafo.mirror_y};
-        m_layers_rst.front().raster.reset(m_res, m_pxdim, mirror, m_gamma);
+        m_layers_rst.front().raster.reset(m_res, m_pxdim, Raster::Format::PNG, m_trafo);
     }
 
     inline void finish_layer(unsigned lyr_id) {
         assert(lyr_id < m_layers_rst.size());
-        m_layers_rst[lyr_id].rawbytes =
-                m_layers_rst[lyr_id].raster.save(Raster::Format::PNG);
+        m_layers_rst[lyr_id].rawbytes = m_layers_rst[lyr_id].raster.save();
         m_layers_rst[lyr_id].raster.reset();
     }
 
     inline void finish_layer() {
         if(!m_layers_rst.empty()) {
-            m_layers_rst.back().rawbytes =
-                    m_layers_rst.back().raster.save(Raster::Format::PNG);
+            m_layers_rst.back().rawbytes = m_layers_rst.back().raster.save();
             m_layers_rst.back().raster.reset();
         }
     }

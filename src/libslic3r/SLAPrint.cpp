@@ -1642,7 +1642,6 @@ sla::RasterWriter & SLAPrint::init_printer()
     sla::Raster::Resolution res;
     sla::Raster::PixelDim   pxdim;
     std::array<bool, 2>     mirror;
-    double                  gamma;
 
     double w  = m_printer_config.display_width.getFloat();
     double h  = m_printer_config.display_height.getFloat();
@@ -1653,17 +1652,17 @@ sla::RasterWriter & SLAPrint::init_printer()
     mirror[Y] = m_printer_config.display_mirror_y.getBool();
 
     auto orientation = get_printer_orientation();
-    if (orientation == sla::RasterWriter::roPortrait) {
+    if (orientation == sla::Raster::roPortrait) {
         std::swap(w, h);
         std::swap(pw, ph);
     }
 
     res   = sla::Raster::Resolution{pw, ph};
     pxdim = sla::Raster::PixelDim{w / pw, h / ph};
-    gamma = m_printer_config.gamma_correction.getFloat();
-
-    sla::RasterWriter::Trafo tr{orientation, mirror};
-    m_printer.reset(new sla::RasterWriter(res, pxdim, tr, gamma));
+    sla::Raster::Trafo tr{orientation, mirror};
+    tr.gamma = m_printer_config.gamma_correction.getFloat();
+    
+    m_printer.reset(new sla::RasterWriter(res, pxdim, tr));
     m_printer->set_config(m_full_print_config);
     return *m_printer;
 }

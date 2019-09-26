@@ -33,16 +33,22 @@ inline const ClipperLib::Paths& holes(const ClipperLib::Polygon& p) { return p.H
 
 namespace sla {
 
+const Raster::TMirroring Raster::NoMirror = {false, false};
+const Raster::TMirroring Raster::MirrorX  = {true, false};
+const Raster::TMirroring Raster::MirrorY  = {false, true};
+const Raster::TMirroring Raster::MirrorXY = {true, true};
+
+
+using TPixelRenderer = agg::pixfmt_gray8; // agg::pixfmt_rgb24;
+using TRawRenderer = agg::renderer_base<TPixelRenderer>;
+using TPixel = TPixelRenderer::color_type;
+using TRawBuffer = agg::rendering_buffer;
+using TBuffer = std::vector<TPixelRenderer::pixel_type>;
+
+using TRendererAA = agg::renderer_scanline_aa_solid<TRawRenderer>;
+
 class Raster::Impl {
 public:
-    using TPixelRenderer = agg::pixfmt_gray8; // agg::pixfmt_rgb24;
-    using TRawRenderer = agg::renderer_base<TPixelRenderer>;
-    using TPixel = TPixelRenderer::color_type;
-    using TRawBuffer = agg::rendering_buffer;
-
-    using TBuffer = std::vector<TPixelRenderer::pixel_type>;
-
-    using TRendererAA = agg::renderer_scanline_aa_solid<TRawRenderer>;
 
     static const TPixel ColorWhite;
     static const TPixel ColorBlack;
@@ -59,7 +65,7 @@ private:
     TRendererAA m_renderer;
     
     std::function<double(double)> m_gammafn;
-    std::array<bool, 2> m_mirror;
+    Trafo m_trafo;
     Format m_fmt = Format::PNG;
     
     inline void flipy(agg::path_storage& path) const {
@@ -73,8 +79,8 @@ private:
 public:
     inline Impl(const Raster::Resolution & res,
                 const Raster::PixelDim &   pd,
-                const std::array<bool, 2> &mirror,
-                double                     gamma = 1.0)
+                Format fmt,
+                const Trafo &trafo)
         : m_resolution(res)
         , m_pxdim_scaled(SCALING_FACTOR / pd.w_mm, SCALING_FACTOR / pd.h_mm)
         , m_buf(res.pixels())
@@ -85,27 +91,17 @@ public:
         , m_pixfmt(m_rbuf)
         , m_raw_renderer(m_pixfmt)
         , m_renderer(m_raw_renderer)
-        , m_mirror(mirror)
+        , m_trafo(trafo)
+        , m_fmt(fmt)
     {
         m_renderer.color(ColorWhite);
         
-        if(gamma > 0) m_gammafn = agg::gamma_power(gamma);
+        if(trafo.gamma > 0) m_gammafn = agg::gamma_power(trafo.gamma);
         else m_gammafn = agg::gamma_threshold(0.5);
         
+        if (fmt == Format::PNG) m_trafo.mirror_y = !m_trafo.mirror_y;
+        
         clear();
-    }
-    
-    inline Impl(const Raster::Resolution& res, 
-                const Raster::PixelDim &pd,
-                Format fmt, 
-                double gamma = 1.0): 
-        Impl(res, pd, {false, false}, gamma) 
-    {
-        switch (fmt) {
-        case Format::PNG: m_mirror = {false, true}; break;
-        case Format::RAW: m_mirror = {false, false}; break;
-        }
-        m_fmt = fmt;
     }
 
     template<class P> void draw(const P &poly) {
@@ -116,15 +112,15 @@ public:
 
         auto&& path = to_path(contour(poly));
         
-        if(m_mirror[X]) flipx(path);
-        if(m_mirror[Y]) flipy(path);
+        if(m_trafo.mirror_x) flipx(path);
+        if(m_trafo.mirror_y) flipy(path);
 
         ras.add_path(path);
 
         for(auto& h : holes(poly)) {
             auto&& holepath = to_path(h);
-            if(m_mirror[X]) flipx(holepath);
-            if(m_mirror[Y]) flipy(holepath);
+            if(m_trafo.mirror_x) flipx(holepath);
+            if(m_trafo.mirror_y) flipy(holepath);
             ras.add_path(holepath);
         }
 
@@ -184,8 +180,8 @@ private:
 
 };
 
-const Raster::Impl::TPixel Raster::Impl::ColorWhite = Raster::Impl::TPixel(255);
-const Raster::Impl::TPixel Raster::Impl::ColorBlack = Raster::Impl::TPixel(0);
+const TPixel Raster::Impl::ColorWhite = TPixel(255);
+const TPixel Raster::Impl::ColorBlack = TPixel(0);
 
 Raster::Raster() { reset(); };
 Raster::~Raster() = default;
@@ -194,17 +190,10 @@ Raster::Raster(Raster &&m) = default;
 Raster &Raster::operator=(Raster &&) = default;
 
 void Raster::reset(const Raster::Resolution &r, const Raster::PixelDim &pd,
-                   Format fmt, double gamma)
+                   Format fmt, const Trafo &trafo)
 {
     m_impl.reset();
-    m_impl.reset(new Impl(r, pd, fmt, gamma));
-}
-
-void Raster::reset(const Raster::Resolution &r, const Raster::PixelDim &pd,
-                   const std::array<bool, 2>& mirror, double gamma)
-{
-    m_impl.reset();
-    m_impl.reset(new Impl(r, pd, mirror, gamma));
+    m_impl.reset(new Impl(r, pd, fmt, trafo));
 }
 
 void Raster::reset()
@@ -273,7 +262,7 @@ void Raster::save(std::ostream& stream, Format fmt)
                << m_impl->resolution().height_px << " "
                << "255 ";
 
-        auto sz = m_impl->buffer().size()*sizeof(Impl::TBuffer::value_type);
+        auto sz = m_impl->buffer().size()*sizeof(TBuffer::value_type);
         stream.write(reinterpret_cast<const char*>(m_impl->buffer().data()),
                      std::streamsize(sz));
     }
@@ -311,7 +300,7 @@ RawBytes Raster::save(Format fmt)
                 std::to_string(m_impl->resolution().width_px) + " " +
                 std::to_string(m_impl->resolution().height_px) + " " + "255 ";
 
-        auto sz = m_impl->buffer().size()*sizeof(Impl::TBuffer::value_type);
+        auto sz = m_impl->buffer().size()*sizeof(TBuffer::value_type);
         s = sz + header.size();
         
         data.reserve(s);
@@ -335,7 +324,7 @@ RawBytes Raster::save()
 uint8_t Raster::read_pixel(size_t x, size_t y) const
 {
     assert (m_impl);
-    Raster::Impl::TPixel::value_type px;
+    TPixel::value_type px;
     m_impl->buffer()[y * resolution().width_px + x].get(px);
     return px;
 }

@@ -398,19 +398,19 @@ static constexpr const TPixel FullBlack = 0;
 
 template <class A, int N> constexpr int arraysize(const A (&)[N]) { return N; }
 
-// This function draws a small box in the center and each corner of the
-// drawing space and reads back the raster output at the corners and the
-// center. Only one location should be white colored (accoring to 'mirroring'),
-// all the other corners have to be black.
-static void check_raster_mirroring(sla::Raster &              raster,
-                                   const BoundingBox &        bb,
-                                   const std::array<bool, 2> &mirroring)
+// This function draws a small box in the center and each corner of the drawing
+// space and reads back the raster output at the corners and the center. Only
+// one location should be white colored (accoring to 'tr'), all the other
+// corners have to be black.
+static void check_raster_trafo(sla::Raster::Format       fmt,
+                               const sla::Raster::Trafo &tr)
 {
-    sla::Raster::Resolution res = raster.resolution();
-    double disp_w = unscaled(bb.max.x() - bb.min.x());
-    double disp_h = unscaled(bb.max.y() - bb.min.y());
+    double disp_w = 120., disp_h = 68.;
+    sla::Raster::Resolution res{2560, 1440};
     sla::Raster::PixelDim pixdim{disp_w / (res.width_px - 1),
                                  disp_h / (res.height_px - 1)};
+    
+    auto bb = BoundingBox({0, 0}, {scaled(disp_w), scaled(disp_h)});
     
     // create box of size 4x4 pixels (not 1x1 to avoid antialiasing errors)
     coord_t pw = 2 * coord_t(std::ceil(scaled<double>(pixdim.w_mm)));
@@ -421,14 +421,16 @@ static void check_raster_mirroring(sla::Raster &              raster,
     Point corners[] = {bb.min, {bb.max.x(), bb.min.y()}, bb.center(),
                        bb.max, {bb.min.x(), bb.max.y()} };
     
-    auto get_white_index = [](size_t k, const std::array<bool, 2> &mirror) {
+    auto get_white_index = [fmt](size_t k, std::array<bool, 2> mirror) {
         // numbers mean:
         // 0: bottom left, 1: bottom right, 2: center, 3: top right, 4: top left
+        // sets correspond to mirrorings: none, Y, X and XY
         static const constexpr std::array< std::array<size_t, 5>, 4> mirror_tab
         {{
             {0, 1, 2, 3, 4}, {4, 3, 2, 1, 0}, {1, 0, 2, 4, 3}, {3, 4, 2, 0, 1}
         }};
         
+        if (fmt == sla::Raster::Format::PNG) mirror[Y] = !mirror[Y];
         size_t idx = (size_t(mirror[0]) << 1) + size_t(mirror[1]);
         return mirror_tab[idx][k];
     };
@@ -437,11 +439,12 @@ static void check_raster_mirroring(sla::Raster &              raster,
     for (const Point &c : corners) {
         ExPolygon ppix = pix;
         ppix.translate(c.x(), c.y());
-        raster.reset(res, pixdim, mirroring);
+        sla::Raster raster;
+        raster.reset(res, pixdim, fmt, tr);
         
         raster.draw(ppix);
         TPixel outputs[arraysize(corners)];
-        size_t k = get_white_index(i++, mirroring);
+        size_t k = get_white_index(i++, {tr.mirror_x, tr.mirror_y});
         
         for (size_t j = 0; j < arraysize(corners); ++j) {
             auto w = size_t(std::floor(unscaled(corners[j].x()) / pixdim.w_mm));
@@ -454,19 +457,20 @@ static void check_raster_mirroring(sla::Raster &              raster,
 }
 
 TEST(SLARasterOutput, MirroringShouldBeCorrect) {
-    double disp_w = 120., disp_h = 68.;
-    sla::Raster::Resolution res{2560, 1440};
-    sla::Raster::PixelDim   pixdim{disp_w / res.width_px, disp_h / res.height_px};
-    auto bb = BoundingBox({0, 0}, {scaled(disp_w), scaled(disp_h)});
-    
-    sla::Raster raster;
-    std::array<bool, 2> mirroring = {false, false};
-    raster.reset(res, pixdim, mirroring);
-    
-    check_raster_mirroring(raster, bb, mirroring);
-    check_raster_mirroring(raster, bb, {false, true});
-    check_raster_mirroring(raster, bb, {true, false});
-    check_raster_mirroring(raster, bb, {true, true});
+    sla::Raster::TMirroring mirrorings[] = {sla::Raster::NoMirror,
+                                            sla::Raster::MirrorX,
+                                            sla::Raster::MirrorY,
+                                            sla::Raster::MirrorXY};
+
+    sla::Raster::Format formats[] = {sla::Raster::Format::PNG,
+                                     sla::Raster::Format::RAW};
+
+    sla::Raster::Orientation orientations[] = {sla::Raster::roLandscape,
+                                               sla::Raster::roPortrait};
+    for (auto fmt : formats)
+        for (auto orientation : orientations)
+            for (auto &mirror : mirrorings)
+                check_raster_trafo(fmt, {orientation, mirror});
 }
 
 int main(int argc, char **argv) {

@@ -74,6 +74,28 @@ public:
             w_mm(px_width_mm), h_mm(px_height_mm) {}
     };
     
+    enum Orientation { roLandscape, roPortrait };
+    
+    using TMirroring = std::array<bool, 2>;
+    static const TMirroring NoMirror;
+    static const TMirroring MirrorX;
+    static const TMirroring MirrorY;
+    static const TMirroring MirrorXY;
+    
+    struct Trafo {
+        bool mirror_x = false, mirror_y = false, flipXY = false;
+        bool antialias = true; double gamma = 1.;
+        
+        // Portrait orientation will make sure the drawed polygons are rotated
+        // by 90 degrees.
+        Trafo(Orientation o = roLandscape, const TMirroring &mirror = NoMirror)
+            // XY flipping implicitly does an X mirror
+            : mirror_x(o == roPortrait ? !mirror[0] : mirror[0])
+            , mirror_y(mirror[1])
+            , flipXY(o == roPortrait)
+        {}
+    };
+    
     Raster();
     Raster(const Raster& cpy) = delete;
     Raster& operator=(const Raster& cpy) = delete;
@@ -82,17 +104,10 @@ public:
     ~Raster();
 
     /// Reallocated everything for the given resolution and pixel dimension.
-    /// The third parameter is either the X, Y mirroring or a supported format 
-    /// for which the correct mirroring will be configured.
-    void reset(const Resolution&, 
-               const PixelDim&, 
-               const std::array<bool, 2>& mirror, 
-               double gamma = 1.0);
-    
     void reset(const Resolution& r, 
-               const PixelDim& pd, 
-               Format o, 
-               double gamma = 1.0);
+               const PixelDim& pd,
+               Format o = Format::PNG,
+               const Trafo &tr = {});
     
     /**
      * Release the allocated resources. Drawing in this state ends in
@@ -127,7 +142,6 @@ public:
     
     inline bool empty() const { return ! bool(m_impl); }
 };
-
 
 } // sla
 } // Slic3r
