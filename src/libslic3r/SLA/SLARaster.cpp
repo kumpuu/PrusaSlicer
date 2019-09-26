@@ -50,7 +50,6 @@ public:
 
 private:
     Raster::Resolution m_resolution;
-//    Raster::PixelDim m_pxdim;
     Raster::PixelDim m_pxdim_scaled;    // used for scaled coordinate polygons
     TBuffer m_buf;
     TRawBuffer m_rbuf;
@@ -63,28 +62,29 @@ private:
     Format m_fmt = Format::PNG;
     
     inline void flipy(agg::path_storage& path) const {
-        path.flip_y(0, m_resolution.height_px);
+        path.flip_y(0, double(m_resolution.height_px));
     }
     
     inline void flipx(agg::path_storage& path) const {
-        path.flip_x(0, m_resolution.width_px);
+        path.flip_x(0, double(m_resolution.width_px));
     }
 
 public:
-
-    inline Impl(const Raster::Resolution& res, const Raster::PixelDim &pd,
-                const std::array<bool, 2>& mirror, double gamma = 1.0):
-        m_resolution(res), 
-//        m_pxdim(pd), 
-        m_pxdim_scaled(SCALING_FACTOR / pd.w_mm, SCALING_FACTOR / pd.h_mm),
-        m_buf(res.pixels()),
-        m_rbuf(reinterpret_cast<TPixelRenderer::value_type*>(m_buf.data()),
-              res.width_px, res.height_px,
-              int(res.width_px*TPixelRenderer::num_components)),
-        m_pixfmt(m_rbuf),
-        m_raw_renderer(m_pixfmt),
-        m_renderer(m_raw_renderer),
-        m_mirror(mirror)
+    inline Impl(const Raster::Resolution & res,
+                const Raster::PixelDim &   pd,
+                const std::array<bool, 2> &mirror,
+                double                     gamma = 1.0)
+        : m_resolution(res)
+        , m_pxdim_scaled(SCALING_FACTOR / pd.w_mm, SCALING_FACTOR / pd.h_mm)
+        , m_buf(res.pixels())
+        , m_rbuf(reinterpret_cast<TPixelRenderer::value_type *>(m_buf.data()),
+                 unsigned(res.width_px),
+                 unsigned(res.height_px),
+                 int(res.width_px * TPixelRenderer::num_components))
+        , m_pixfmt(m_rbuf)
+        , m_raw_renderer(m_pixfmt)
+        , m_renderer(m_raw_renderer)
+        , m_mirror(mirror)
     {
         m_renderer.color(ColorWhite);
         
@@ -184,14 +184,8 @@ const Raster::Impl::TPixel Raster::Impl::ColorBlack = Raster::Impl::TPixel(0);
 template<> Raster::Raster() { reset(); };
 Raster::~Raster() = default;
 
-// Raster::Raster(Raster &&m) = default;
-// Raster& Raster::operator=(Raster&&) = default;
-
-// FIXME: remove after migrating to higher version of windows compiler
-Raster::Raster(Raster &&m): m_impl(std::move(m.m_impl)) {}
-Raster& Raster::operator=(Raster &&m) {
-    m_impl = std::move(m.m_impl); return *this;
-}
+Raster::Raster(Raster &&m) = default;
+Raster &Raster::operator=(Raster &&) = default;
 
 void Raster::reset(const Raster::Resolution &r, const Raster::PixelDim &pd,
                    Format fmt, double gamma)

@@ -43,15 +43,12 @@ void RasterWriter::flpXY(ExPolygon &poly)
     }
 }
 
-RasterWriter::RasterWriter(const Raster::Resolution  &res,
-                                 const Raster::PixelDim    &pixdim,
-                                 const std::array<bool, 2> &mirror,
-                                 double gamma)
-    : m_res(res), m_pxdim(pixdim), m_mirror(mirror), m_gamma(gamma)
-{
-    // PNG raster will implicitly do an Y mirror
-    m_mirror[1] = !m_mirror[1];
-}
+RasterWriter::RasterWriter(const Raster::Resolution &res,
+                           const Raster::PixelDim &  pixdim,
+                           const Trafo &             trafo,
+                           double                    gamma)
+    : m_res(res), m_pxdim(pixdim), m_trafo(trafo), m_gamma(gamma)
+{}
 
 void RasterWriter::save(const std::string &fpath, const std::string &prjname)
 {

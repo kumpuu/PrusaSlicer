@@ -17,34 +17,22 @@ class ExPolygon;
 namespace sla {
 
 // Raw byte buffer paired with its size. Suitable for compressed PNG data.
-class RawBytes {
-
+class RawBytes
+{
     std::vector<std::uint8_t> m_buffer;
-public:
 
+public:
     RawBytes() = default;
     RawBytes(std::vector<std::uint8_t>&& data): m_buffer(std::move(data)) {}
     
     size_t size() const { return m_buffer.size(); }
     const uint8_t * data() { return m_buffer.data(); }
-    
-    RawBytes(const RawBytes&) = delete;
-    RawBytes& operator=(const RawBytes&) = delete;
 
-    // /////////////////////////////////////////////////////////////////////////
-    // FIXME: the following is needed for MSVC2013 compatibility
-    // /////////////////////////////////////////////////////////////////////////
+    RawBytes(const RawBytes &) = delete;
+    RawBytes &operator=(const RawBytes &) = delete;
 
-    // RawBytes(RawBytes&&) = default;
-    // RawBytes& operator=(RawBytes&&) = default;
-
-    RawBytes(RawBytes&& mv) : m_buffer(std::move(mv.m_buffer)) {}
-    RawBytes& operator=(RawBytes&& mv) {
-        m_buffer = std::move(mv.m_buffer);
-        return *this;
-    }
-
-    // /////////////////////////////////////////////////////////////////////////
+    RawBytes(RawBytes &&) = default;
+    RawBytes &operator=(RawBytes &&) = default;
 };
 
 /**

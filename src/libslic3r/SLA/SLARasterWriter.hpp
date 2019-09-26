@@ -25,9 +25,20 @@ namespace Slic3r { namespace sla {
 class RasterWriter
 {
 public:
-    enum Orientation {
-        roLandscape,
-        roPortrait
+    enum Orientation { roLandscape, roPortrait };
+
+    struct Trafo {
+        bool mirror_x = false, mirror_y = false, flipXY = false;
+
+        explicit Trafo(Orientation         o,
+                       std::array<bool, 2> mirror = {false, false})
+            : mirror_x(mirror[0])
+            , mirror_y(!mirror[1]) // PNG raster implicitly does an Y flip
+            , flipXY(o == roPortrait)
+        {
+            // XY flipping implicitly does an X mirror
+            if (flipXY) mirror_x = !mirror_x;
+        }
     };
     
     // Used for addressing parameters of set_statistics()
@@ -61,22 +72,30 @@ private:
     // parallel. Later we can write every layer to the disk sequentially.
     std::vector<Layer> m_layers_rst;
     Raster::Resolution m_res;
-    Raster::PixelDim m_pxdim;
-    std::array<bool, 2> m_mirror;
-    double m_gamma;
-    
+    Raster::PixelDim   m_pxdim;
+    Trafo              m_trafo;
+    double             m_gamma;
+
     std::map<std::string, std::string> m_config;
     
     std::string createIniContent(const std::string& projectname) const;
     
     static void flpXY(ClipperLib::Polygon& poly);
     static void flpXY(ExPolygon& poly);
+    
+    template<class Poly> void draw_poly_flpxy(Poly p, unsigned lyr)
+    {
+        flpXY(p);
+        m_layers_rst[lyr].raster.draw(p);
+    }
 
 public:
-    RasterWriter(const Raster::Resolution  &res,
-                    const Raster::PixelDim    &pixdim,
-                    const std::array<bool, 2> &mirror,
-                    double gamma = 1.);
+    
+    // SLARasterWriter is using Raster in custom mirroring mode
+    RasterWriter(const Raster::Resolution &res,
+                 const Raster::PixelDim &  pixdim,
+                 const Trafo &             trafo,
+                 double                    gamma = 1.);
 
     RasterWriter(const RasterWriter& ) = delete;
     RasterWriter& operator=(const RasterWriter&) = delete;
@@ -86,32 +105,24 @@ public:
     inline void layers(unsigned cnt) { if(cnt > 0) m_layers_rst.resize(cnt); }
     inline unsigned layers() const { return unsigned(m_layers_rst.size()); }
     
-    template<class Poly> void draw_polygon(const Poly& p, unsigned lyr,
-                      Orientation o = roPortrait)
+    template<class Poly> void draw_polygon(const Poly& p, unsigned lyr)
     {
         assert(lyr < m_layers_rst.size());
         
-        switch (o) {
-        case roPortrait: {
-            Poly poly(p);
-            flpXY(poly);
-            m_layers_rst[lyr].raster.draw(poly);
-            break;
-        }
-        case roLandscape:
-            m_layers_rst[lyr].raster.draw(p);
-            break;
-        }
+        if (m_trafo.flipXY) draw_poly_flpxy(p, lyr);
+        else m_layers_rst[lyr].raster.draw(p);
     }
 
     inline void begin_layer(unsigned lyr) {
         if(m_layers_rst.size() <= lyr) m_layers_rst.resize(lyr+1);
-        m_layers_rst[lyr].raster.reset(m_res, m_pxdim, m_mirror, m_gamma);
+        std::array<bool, 2> mirror{m_trafo.mirror_x, m_trafo.mirror_y};
+        m_layers_rst[lyr].raster.reset(m_res, m_pxdim, mirror, m_gamma);
     }
 
     inline void begin_layer() {
         m_layers_rst.emplace_back();
-        m_layers_rst.front().raster.reset(m_res, m_pxdim, m_mirror, m_gamma);
+        std::array<bool, 2> mirror{m_trafo.mirror_x, m_trafo.mirror_y};
+        m_layers_rst.front().raster.reset(m_res, m_pxdim, mirror, m_gamma);
     }
 
     inline void finish_layer(unsigned lyr_id) {
