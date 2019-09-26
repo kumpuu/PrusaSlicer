@@ -11,7 +11,7 @@
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/SLA/SLAPad.hpp"
 #include "libslic3r/SLA/SLASupportTreeBuilder.hpp"
-#include "libslic3r/SLA/SLASupportTreeAlgorithm.hpp"
+#include "libslic3r/SLA/SLASupportTreeBuildsteps.hpp"
 #include "libslic3r/SLA/SLAAutoSupports.hpp"
 #include "libslic3r/SLA/SLARaster.hpp"
 #include "libslic3r/MTUtils.hpp"
