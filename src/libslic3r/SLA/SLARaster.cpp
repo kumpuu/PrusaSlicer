@@ -183,7 +183,16 @@ private:
 const TPixel Raster::Impl::ColorWhite = TPixel(255);
 const TPixel Raster::Impl::ColorBlack = TPixel(0);
 
-Raster::Raster() { reset(); };
+Raster::Raster() { reset(); }
+
+Raster::Raster(const Raster::Resolution &r,
+               const Raster::PixelDim &  pd,
+               Raster::Format            o,
+               const Raster::Trafo &     tr)
+{
+    reset(r, pd, o, tr);
+};
+
 Raster::~Raster() = default;
 
 Raster::Raster(Raster &&m) = default;

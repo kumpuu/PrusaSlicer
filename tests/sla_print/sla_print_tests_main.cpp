@@ -439,8 +439,7 @@ static void check_raster_trafo(sla::Raster::Format       fmt,
     for (const Point &c : corners) {
         ExPolygon ppix = pix;
         ppix.translate(c.x(), c.y());
-        sla::Raster raster;
-        raster.reset(res, pixdim, fmt, tr);
+        sla::Raster raster{res, pixdim, fmt, tr};
         
         raster.draw(ppix);
         TPixel outputs[arraysize(corners)];
@@ -471,6 +470,86 @@ TEST(SLARasterOutput, MirroringShouldBeCorrect) {
         for (auto orientation : orientations)
             for (auto &mirror : mirrorings)
                 check_raster_trafo(fmt, {orientation, mirror});
+}
+
+static ExPolygon square_with_hole(double v)
+{
+    ExPolygon poly;
+    coord_t V = scaled(v / 2.);
+    
+    poly.contour.points = {{-V, -V}, {V, -V}, {V, V}, {-V, V}};
+    poly.holes.emplace_back();
+    V = V / 2;
+    poly.holes.front().points = {{-V, V}, {V, V}, {V, -V}, {-V, -V}};
+    return poly;
+}
+
+static double pixel_area(TPixel px, const sla::Raster::PixelDim &pxdim)
+{
+    return (pxdim.h_mm * pxdim.w_mm) * px * 1. / (FullWhite - FullBlack);
+}
+
+static double raster_white_area(const sla::Raster &raster)
+{
+    if (raster.empty()) return std::nan("");
+    
+    auto res = raster.resolution();
+    double a = 0;
+    
+    for (size_t x = 0; x < res.width_px; ++x)
+        for (size_t y = 0; y < res.height_px; ++y) {
+            auto px = raster.read_pixel(x, y);
+            a += pixel_area(px, raster.pixel_dimensions());
+        }
+            
+    return a;
+}
+
+static double predict_error(const ExPolygon &p, const sla::Raster::PixelDim &pd)
+{
+    auto lines = p.lines();
+    double pix_err = pixel_area(FullWhite, pd)  / 2.;
+    
+    // Worst case is when a line is parallel to the shorter axis of one pixel,
+    // when the line will be composed of the max number of pixels
+    double pix_l = std::min(pd.h_mm, pd.w_mm);
+    
+    double error = 0.;
+    for (auto &l : lines)
+        error += (unscaled(l.length()) / pix_l) * pix_err;
+    
+    return error;
+}
+
+TEST(SLARasterOutput, RasterizedPolygonAreaShouldMatch) {
+    double disp_w = 120., disp_h = 68.;
+    sla::Raster::Resolution res{2560, 1440};
+    sla::Raster::PixelDim pixdim{disp_w / (res.width_px - 1),
+                                 disp_h / (res.height_px - 1)};
+    
+    sla::Raster raster{res, pixdim, sla::Raster::Format::RAW};
+    auto bb = BoundingBox({0, 0}, {scaled(disp_w), scaled(disp_h)});
+    
+    ExPolygon poly = square_with_hole(10.);
+    poly.translate(bb.center().x(), bb.center().y());
+    raster.draw(poly);
+    
+    double a = poly.area() / (scaled<double>(1.) * scaled(1.));
+    double ra = raster_white_area(raster);
+    double diff = std::abs(a - ra);
+    
+    ASSERT_LE(diff, predict_error(poly, pixdim));
+    
+    raster.reset(res, pixdim, sla::Raster::Format::RAW);
+    poly = square_with_hole(60.);
+    poly.translate(bb.center().x(), bb.center().y());
+    raster.draw(poly);
+    
+    a = poly.area() / (scaled<double>(1.) * scaled(1.));
+    ra = raster_white_area(raster);
+    diff = std::abs(a - ra);
+    
+    ASSERT_LE(diff, predict_error(poly, pixdim));
 }
 
 int main(int argc, char **argv) {

@@ -97,6 +97,11 @@ public:
     };
     
     Raster();
+    Raster(const Resolution &r,
+           const PixelDim &  pd,
+           Format            o  = Format::PNG,
+           const Trafo &     tr = {});
+    
     Raster(const Raster& cpy) = delete;
     Raster& operator=(const Raster& cpy) = delete;
     Raster(Raster&& m);
@@ -142,6 +147,16 @@ public:
     
     inline bool empty() const { return ! bool(m_impl); }
 };
+
+inline std::string get_file_extension(Raster::Format fmt)
+{
+    switch (fmt) {
+    case Raster::Format::PNG: return "png";
+    case Raster::Format::RAW: return "ppm";
+    }
+    
+    return "";
+}
 
 } // sla
 } // Slic3r
